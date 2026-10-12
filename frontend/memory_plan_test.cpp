@@ -47,10 +47,10 @@ int main() {
     p = plan(host64, kCoder);
     assert(p.ple_io == "direct" && !p.resident_experts);
 
-    Machine winbig = big;               // never `ram` on Windows, asked or not
+    Machine winbig = big;               // Windows: `ram` only when asked for
     winbig.windows = true;
     assert(plan(winbig).ple_io == "direct");
-    assert(refused(winbig, "ram", "auto"));
+    assert(plan(winbig, kIq3, "ram").ple_io == "ram");
     assert(plan(winbig, kIq3, "mmap").ple_io == "mmap");
 
     Machine hdd;                        // too little RAM for the table, slow disk: direct with a warning

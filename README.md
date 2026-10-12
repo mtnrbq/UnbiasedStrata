@@ -91,13 +91,15 @@ Run, with the same options as on Linux:
     --pack D:\packs\coder-iq1_m --mtp D:\mtp\rt --expert-profile D:\Strata\data\expert-profile-coder.bin
 ```
 
-- `--ple-io ram` does not exist on Windows; `auto` reads the n-gram table from the disk (`direct`), so keep the
-  model on an SSD.
+- `--ple-io auto` reads the n-gram table from the disk on Windows (`direct`), so keep the model on an SSD.
+  `--ple-io ram` locks it in RAM instead (the engine's `VirtualLock`); with the Coder on a 64 GB PC that is
+  about 52 GB locked, and it has not been measured.
 - Speed on the machine above, Coder IQ1_M, through the server (mean of 8 prompts of 400 generated tokens; mean of 2
-  prompts of ~19,500 tokens): 83.8 tokens/s generating and 2,903 tokens/s reading at 32K context; 82.6 and 2,812 at
-  64K, where the KV cache past 32K positions is streamed from RAM (`--kv-resident 32768`, chosen automatically above
-  32K when RAM allows). For the Coder the server also has its expert cache adapt every round (`--adapt-every 1
-  --adapt-swaps 80 --adapt-decay 0.97`, upstream's tested values): 72.6 tokens/s without them.
+  prompts of ~19,000 tokens): 117.0 tokens/s generating and 3,009 tokens/s reading at 32K context; 111.6 and 2,967
+  at 64K, where the KV cache past 32K positions is streamed from RAM (`--kv-resident 32768`, chosen automatically
+  above 32K when RAM allows). For the Coder the server also has its expert cache adapt every round
+  (`--adapt-every 1 --adapt-swaps 80 --adapt-decay 0.97`, upstream's tested values). With engine 0.1.39 the same
+  runs gave 83.8 and 86.7 tokens/s; upstream Strata 0.1.41's own server with its own config, 96.4 at 64K.
 - The engine runs in a Job Object: when the server ends, even by a crash or `Stop-Process -Force`, the engine
   ends with it and the GPU is freed.
 - With `--mmproj`, image files go to an `images` folder beside the program, whose path must not contain a space
@@ -148,7 +150,8 @@ produce, are in [UPSTREAM.md](UPSTREAM.md).
 
 ## Status
 
-Checked on one machine: RTX 3090, 32 vCPUs of an EPYC 7763, 125 GB RAM, CUDA 12.8, in a container.
+Checked on one machine: RTX 3090, 32 vCPUs of an EPYC 7763, 125 GB RAM, CUDA 12.8, in a container. The checks and
+speeds in this section are from engine 0.1.39: 0.1.42 has been built and run on Windows only so far.
 
 | | |
 | --- | --- |
@@ -179,17 +182,17 @@ builds differ in compile flags and in how the n-gram table is held in RAM, and e
 - Replies are not reproducible token for token between runs or between this fork and upstream, even with
   greedy sampling, so "same output" cannot be checked by comparing text.
 
-## Compared with upstream Strata (6f32ec0)
+## Compared with upstream Strata
 
-| | Upstream | This fork |
+| | Upstream at the import (0.1.39, `6f32ec0`) | This fork (engine 0.1.42) |
 | --- | --- | --- |
-| Engine source (`src/`, `include/`) | 272 files | two files changed, one added (retrying reads from slow stores); cutting it down is the next work |
+| Engine source (`src/`, `include/`) | 272 files | upstream 0.1.42 (337 files) with three files changed and one added (retrying reads from slow stores, stall diagnostics); see UPSTREAM.md |
 | Build | clones llama.cpp during CMake | pinned submodule, fetches nothing; one patch, applied by `make build`: tool-call arguments in any order (see UPSTREAM.md) |
 | Setup | Python installer downloads the model and builds the pack and draft head | none; files must already exist |
 | Server | Python | C++, in the same binary (`frontend/`), with the image encoder from llama.cpp's `mtmd` |
 | Python | 33,745 lines | 0 |
-| C, C++ and CUDA | 208,254 lines (with tests and the Intel port) | 84,086 lines |
-| Tracked files | 851, 27 MB | 292, 6 MB |
+| C, C++ and CUDA | 208,254 lines (with tests and the Intel port) | 117,231 lines |
+| Tracked files | 851, 27 MB | 377, 8 MB |
 | Configurations | several models, NVIDIA, AMD and Intel, Linux and Windows, multi-GPU | two models, one NVIDIA card, Linux and Windows |
 
 ## Credits and licence

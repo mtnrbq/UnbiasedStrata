@@ -5,7 +5,9 @@
 // RAM only for a rotational disk (setup.py:5365), but this fork's measured hosts hold it in RAM, and one of them reads
 // the model from a network volume, where a table read from the file on every token would crawl.  So the table goes
 // to RAM wherever it fits beside the experts, and is read from the disk (`direct`) everywhere else, with a warning
-// when that disk is slow.  Windows has no `ram` mode (the engine refuses it: src/program/generate.cpp:1758).
+// when that disk is slow.  On Windows `auto` keeps the table on the disk: the engine's `ram` there locks the file
+// mapping (VirtualLock, since 0.1.42), which on a 64 GB PC would lock about 52 GB with the Coder's experts, and it
+// has not been measured; `--ple-io ram` asks for it.
 //
 // The sizes come from the model (frontend/model.hpp and the n-gram shard's size).  RAM is in GiB, as upstream's ram_gb()
 // counts it.
@@ -62,8 +64,6 @@ inline bool plan_memory(const Machine& m, double experts_gb, double table_gb, lo
                         const std::string& low_ram, MemoryPlan& p, std::string& err) {
     p = MemoryPlan{};
     if (ple_io == "direct" || ple_io == "mmap" || ple_io == "ram") {
-        // say so now, not after the minutes the engine takes to reach the same refusal
-        if (ple_io == "ram" && m.windows) { err = "--ple-io ram is not available on Windows; use direct"; return false; }
         p.ple_io = ple_io;
         p.notes.push_back("n-gram table: --ple-io " + ple_io + " (as asked)");
     } else if (ple_io != "auto") {
