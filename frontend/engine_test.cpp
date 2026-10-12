@@ -23,6 +23,11 @@ int main(int argc, char** argv) {
                 std::fflush(stdout);
                 continue;
             }
+            if (request.find("77") != std::string::npos) {   // #879: the NaN guard ends a request, nothing emitted
+                std::printf("DONE 0 1 1 1 nonfinite 0 0\n");
+                std::fflush(stdout);
+                continue;
+            }
             const int base = request.find("99") != std::string::npos ? 99 : 11;
             std::printf("T %d\nT %d\nDONE 2 1 1 1 stop 0 0\n", base, base+1);
             std::fflush(stdout);
@@ -45,11 +50,16 @@ int main(int argc, char** argv) {
     tokens.clear();
     next = engine.generate("GEN 2 ", {99}, [&](int32_t token) { tokens.push_back(token); return true; });
     assert(next.ok && (tokens == std::vector<int32_t>{99,100}));
+    tokens.clear();
+    auto nonfinite = engine.generate("GEN 2 ", {77}, [&](int32_t token) { tokens.push_back(token); return true; });
+    assert(nonfinite.ok && nonfinite.finish == "nonfinite" && nonfinite.produced == 0 && tokens.empty());
+    next = engine.generate("GEN 2 ", {99}, [&](int32_t token) { tokens.push_back(token); return true; });
+    assert(next.ok && next.finish == "stop" && (tokens == std::vector<int32_t>{99,100}));
     auto mismatched = engine.generate("GEN 2 ", {88}, [](int32_t) { return true; });
     assert(!mismatched.ok && !engine.alive());
     assert(mismatched.error.find("prompt size mismatch") != std::string::npos);
     auto rejected = engine.generate("GEN 2 ", {99}, [](int32_t) { return true; });
     assert(!rejected.ok && rejected.produced == 0);
     engine.quit();
-    std::puts("PASS: formatter exceptions and client cancellation drain the old request before the next request");
+    std::puts("PASS: formatter exceptions, client cancellation and a non-finite finish drain the old request before the next request");
 }
