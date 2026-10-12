@@ -94,13 +94,17 @@ Run, with the same options as on Linux:
 - `--ple-io auto` reads the n-gram table from the disk on Windows (`direct`), so keep the model on an SSD.
   `--ple-io ram` locks it in RAM instead (the engine's `VirtualLock`); with the Coder on a 64 GB PC that is
   about 52 GB locked, and it has not been measured.
+- For the Coder the server has its expert cache adapt every round (`--adapt-every 1 --adapt-swaps 80
+  --adapt-decay 0.97`, upstream's tested values), and sets `STRATA_ADAPT_OVERLAP=1` for the engine, so the cache's
+  copies land while the next decode step runs (same tokens). Upstream leaves overlap off on Windows after measuring
+  another model; for the Coder here it gave +2.2% decode at 64K over 5 alternating pairs. Set
+  `STRATA_ADAPT_OVERLAP=0` to turn it off.
 - Speed on the machine above, engine 0.1.43, Coder IQ1_M, through the server (mean of 8 prompts of 400 generated
-  tokens; mean of 2 prompts of ~19,000 tokens): 118.4 tokens/s generating at 32K context; about 110 at 64K (three
-  runs: 112.0, 106.8, 110.5), where the KV cache past 32K positions is streamed from RAM (`--kv-resident 32768`,
-  chosen automatically above 32K when RAM allows). Reading a prompt, about 2,980 tokens/s. For the Coder the server
-  also has its expert cache adapt every round (`--adapt-every 1 --adapt-swaps 80 --adapt-decay 0.97`, upstream's
-  tested values). Engine 0.1.42 gave the same speeds (108.6 at 64K, two runs); engine 0.1.39, 83.8 at 32K and 86.7
-  at 64K. Upstream Strata 0.1.41's own server with its own config, measured the same day: 94.6 at 64K.
+  tokens; mean of 2 prompts of ~19,000 tokens), at 64K context, where the KV cache past 32K positions is streamed
+  from RAM (`--kv-resident 32768`, chosen automatically above 32K when RAM allows): 114.5 tokens/s generating
+  with overlap (five runs), 111.7 without; reading a prompt, about 2,990 tokens/s. At 32K, 118.4 without overlap
+  (one run). Engine 0.1.42 without overlap: 108.6 at 64K; engine 0.1.39, 83.8 at 32K and 86.7 at 64K. Upstream
+  Strata 0.1.41's own server with its own config, measured the same day: 94.6 at 64K.
 - The engine runs in a Job Object: when the server ends, even by a crash or `Stop-Process -Force`, the engine
   ends with it and the GPU is freed.
 - With `--mmproj`, image files go to an `images` folder beside the program, whose path must not contain a space
