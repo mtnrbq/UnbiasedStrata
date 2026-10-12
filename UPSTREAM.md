@@ -4,7 +4,7 @@
 
 | What | Where | Version |
 | --- | --- | --- |
-| Engine | https://github.com/Niko1221/Strata | tag `v0.1.42`, commit `61b3fb5dd3f1e8ec09cf7e4e05208bc6d3c46406`, engine 0.1.42 |
+| Engine | https://github.com/Niko1221/Strata | tag `v0.1.43`, commit `7695859aa13afb248bdb4d36f9b2e95707db079d`, engine 0.1.43 |
 | ggml (CPU backend, CUDA matrix kernels) | https://github.com/ggml-org/llama.cpp, as the submodule `third_party/llama.cpp` | commit `3cf03257f219afbe7334045ff7c6a06ac68c627d`, the one upstream Strata pins |
 
 The first commit of this repository is the upstream snapshot as published, engine 0.1.39 (commit `6f32ec0`; upstream
@@ -15,7 +15,9 @@ The engine was then moved to 0.1.42 by applying upstream's `git diff v0.1.39 v0.
 CMakeLists.txt` (942 upstream commits; 220 files) and merging this fork's changes back in. Nothing else from that
 range was taken: not the Python server, setup or tools, the benchmarks, the tests or the Intel port, and none of
 the experimental ports beyond the tag (robertkarl/UnbiasedStrata#2 was used as a reference only).
-To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` with upstream's tag `v0.1.42`.
+It was moved to 0.1.43 the same way, with `git diff v0.1.42 v0.1.43 -- src include cmake CMakeLists.txt` (44
+upstream commits that touch those paths; 24 files), which applied without conflicts.
+To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` with upstream's tag `v0.1.43`.
 
 ## What this fork changed
 

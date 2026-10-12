@@ -363,7 +363,7 @@ struct Server {
             msg = now;
             if (client_ok && !diffs.empty()) client_ok = emit(diffs);
         };
-        GenResult r = engine.generate(p.header, p.ids, [&](llama_token id) {
+        auto on_token = [&](llama_token id) {
             if (llama_vocab_is_eog(vocab, id)) return client_ok;
             pending += common_token_to_piece(vocab, id, /*special=*/true);
             const size_t n = utf8_complete_prefix(pending);
@@ -373,7 +373,20 @@ struct Server {
                 update(true);
             }
             return client_ok;
-        });
+        };
+        GenResult r = engine.generate(p.header, p.ids, on_token);
+        // #879: the engine's NaN guard ends a request with finish=nonfinite, emits none of that window's tokens and
+        // drops its cached state, so the next request reads its prompt from token 0.  Nothing produced yet: send
+        // it again once (the usage is the retry's).  A reply that had started ends as "length" (finish_reason).
+        if (r.ok && r.finish == "nonfinite" && text.empty() && pending.empty()) {
+            std::fprintf(stderr, "unbiased-strata: request %s: non-finite logits before any output; sending it again\n",
+                         p.request_id.c_str());
+            r = engine.generate(p.header, p.ids, on_token);
+            if (r.ok && r.finish == "nonfinite" && text.empty() && pending.empty()) {
+                r.ok = false;
+                r.error = "the engine produced non-finite logits twice for this request";
+            }
+        }
         text += pending;
         try {
             update(false);
