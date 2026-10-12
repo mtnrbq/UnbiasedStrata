@@ -4,12 +4,18 @@
 
 | What | Where | Version |
 | --- | --- | --- |
-| Engine | https://github.com/Niko1221/Strata | commit `6f32ec070f23ced9f50e704d854d775da52591ab`, engine 0.1.39 |
+| Engine | https://github.com/Niko1221/Strata | tag `v0.1.42`, commit `61b3fb5dd3f1e8ec09cf7e4e05208bc6d3c46406`, engine 0.1.42 |
 | ggml (CPU backend, CUDA matrix kernels) | https://github.com/ggml-org/llama.cpp, as the submodule `third_party/llama.cpp` | commit `3cf03257f219afbe7334045ff7c6a06ac68c627d`, the one upstream Strata pins |
 
-The first commit of this repository is the upstream snapshot as published. One file was not imported:
-`bench/results/2026-09-30-community-rtx-5090/engine.log`, which upstream's own ignore rules exclude.
-`git diff <first commit> HEAD -- src include CMakeLists.txt` shows every change to the engine and its build.
+The first commit of this repository is the upstream snapshot as published, engine 0.1.39 (commit `6f32ec0`; upstream
+has since rewritten its history, and its tag `v0.1.39`, commit `a1641e9`, has the same tree). One file was not
+imported: `bench/results/2026-09-30-community-rtx-5090/engine.log`, which upstream's own ignore rules exclude.
+
+The engine was then moved to 0.1.42 by applying upstream's `git diff v0.1.39 v0.1.42 -- src include cmake
+CMakeLists.txt` (942 upstream commits; 220 files) and merging this fork's changes back in. Nothing else from that
+range was taken: not the Python server, setup or tools, the benchmarks, the tests or the Intel port, and none of
+the experimental ports beyond the tag (robertkarl/UnbiasedStrata#2 was used as a reference only).
+To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` with upstream's tag `v0.1.42`.
 
 ## What this fork changed
 
@@ -28,7 +34,7 @@ The first commit of this repository is the upstream snapshot as published. One f
   required arguments first; Qwen3.8 Flash-Next often writes the optional ones first (`limit`, `offset`,
   `path`), and because the grammar's tool-call group is optional and has no end anchor, such a call was
   dropped silently: the client got `finish_reason=stop` and an empty answer (2026-10-08).
-- **Engine source (`src/`, `include/`):** three changes, all for loading from a slow or remote store. The
+- **Engine source (`src/`, `include/`):** four changes, three for loading from a slow or remote store. The
   engine's own program is compiled into the binary with its entry point renamed; the front end starts it
   as a child process.
   - `include/strata/platform/robust_read.hpp` (new): positional reads that retry an error a network store
@@ -36,13 +42,16 @@ The first commit of this repository is the upstream snapshot as published. One f
   - `src/core/expert_source.cpp`: the expert loader reads through it, reports progress, and names the file,
     offset and error when it fails. On Windows, where `robust_read.hpp` is not built, it keeps upstream's
     `fread` (#230), with the progress and the named errors.
-  - `src/kernels/ngram.cpp`: `--ple-io ram` reads the n-gram table into memory of its own with 16 readers,
-    where upstream locked the file mapping (which fails under a container's `ulimit -l`).
+  - `src/kernels/ngram.cpp`: on Linux, `--ple-io ram` reads the n-gram table into memory of its own with 16
+    readers, where upstream locks the file mapping (which fails under a container's `ulimit -l`). On Windows
+    upstream's own path is kept: it locks the mapping with `VirtualLock` (new in 0.1.42).
+  - `src/program/generate.cpp`: the stall report names the stage the decode loop was in, and lists the
+    threads' wait channels on Linux.
 
 Code paths for other models and for AMD cards are still present in the engine source. They are not built by
 `make build` or `build.ps1`, not tested and not supported here. The engine's Windows paths are upstream's and are
-used: on Windows the n-gram table is read from the disk (`--ple-io ram` is refused there), and the retrying reads
-above are Linux only.
+used; the retrying reads above are Linux only. In `CMakeLists.txt`, the tests and the ISA checker that live in
+upstream's `tests/` and `tools/` are built only when those are present.
 
 ## Prepared model files
 

@@ -74,7 +74,7 @@ void usage() {
         "  --threads N     CPU threads for the experts the GPU does not hold (default: every physical core,\n"
         "                  or half the CPU quota inside a container that has one)\n"
         "  --ple-io MODE   how the 29 GB n-gram table is read: auto (default: direct, or ram for a model on a\n"
-        "                  rotational disk with RAM to spare), direct (from the SSD), mmap, or ram (not on Windows)\n"
+        "                  rotational disk with RAM to spare), direct (from the SSD), mmap, or ram\n"
         "  --low-ram MODE  auto (default: on with less than ~53 GB of RAM), on (--resident-experts: the GPU holds\n"
         "                  what it can and the rest is copied into RAM), or off (every expert in RAM)\n"
         "  --host ADDR     address to listen on (default 127.0.0.1)\n"
