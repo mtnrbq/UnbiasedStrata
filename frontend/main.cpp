@@ -690,6 +690,18 @@ int main(int argc, char** argv) {
     }
     if (o.threads > 0) { eargs.push_back("--pool-workers"); eargs.push_back(std::to_string(o.threads)); }
     for (const std::string& e : o.extra) eargs.push_back(e);
+    // the model's engine settings that are environment variables (the engine inherits ours); one already set is kept
+    for (const char* const* kv = srv.info->engine_env; *kv != nullptr; ++kv) {
+        const std::string s(*kv);
+        const std::string name = s.substr(0, s.find('=')), value = s.substr(s.find('=') + 1);
+        if (std::getenv(name.c_str()) != nullptr) continue;
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), value.c_str());
+#else
+        setenv(name.c_str(), value.c_str(), 0);
+#endif
+        std::fprintf(stderr, "unbiased-strata: engine setting %s (set %s yourself to change it)\n", s.c_str(), name.c_str());
+    }
 #if !defined(_WIN32)
     std::signal(SIGPIPE, SIG_IGN);   // a write to an engine that has gone fails instead (Windows has no SIGPIPE)
 #endif

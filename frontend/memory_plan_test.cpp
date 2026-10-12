@@ -100,6 +100,10 @@ int main() {
                           "Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf") == nullptr);   // another size
     assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO", 256, coder) == nullptr);              // not the Coder
     assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO Coder", 512, full) == nullptr);
+    // engine settings by environment: the Coder's adaptive overlap, nothing for the full model
+    assert(std::string(strata_frontend::kCoderIq1M.engine_env[0]) == "STRATA_ADAPT_OVERLAP=1" &&
+           strata_frontend::kCoderIq1M.engine_env[1] == nullptr);
+    assert(strata_frontend::kFlashNextIq3Xxs.engine_env[0] == nullptr);
 
     const Machine here = strata_frontend::probe_machine(".");
     std::printf("this machine: %.1f GB of RAM%s%s\n", here.ram_gb, here.slow_disk.empty() ? "" : ", ",
