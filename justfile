@@ -11,6 +11,11 @@ mtp := data + '\mtp\rt'
 profile := 'D:\Strata\data\expert-profile-coder.bin'
 ctx := '65536'
 
+# where the full model's files are (C: has the room; it is the same SSD as D:).  The pack holds its own expert profile
+iq3_data := 'C:\Strata-data'
+iq3_model := iq3_data + '\models\IQ3_XXS\Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf'
+iq3_pack := iq3_data + '\packs\iq3-xxs'
+
 # build the server for the RTX 50 series only (sm_120): a third of the CUDA work of the default three architectures
 build *args:
     .\build.ps1 -CudaArchs 120 {{args}}
@@ -18,3 +23,7 @@ build *args:
 # run the server for Qwen3.8 Flash-Next Coder IQ1_M on 127.0.0.1:8080 (restarted if the engine fails; Ctrl+C stops it)
 serve *args:
     .\serve.ps1 --model '{{model}}' --pack '{{pack}}' --mtp '{{mtp}}' --expert-profile '{{profile}}' --ctx {{ctx}} {{args}}
+
+# run the server for Qwen3.8 Flash-Next IQ3_XXS (the full model) the same way; it shares the Coder's draft head
+serve-iq3 *args:
+    .\serve.ps1 --model '{{iq3_model}}' --pack '{{iq3_pack}}' --mtp '{{mtp}}' --ctx {{ctx}} {{args}}
