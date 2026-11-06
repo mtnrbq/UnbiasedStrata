@@ -2,6 +2,7 @@
 # The paths below are this PC's; override one on the command line, e.g. `just data='E:\models' serve`.
 
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
+set default-list := true
 
 # where the Coder's files are (see README.md, Windows)
 data := 'D:\Strata-data'
@@ -22,8 +23,8 @@ build *args:
 
 # run the server for Qwen3.8 Flash-Next Coder IQ1_M on 127.0.0.1:8080 (restarted if the engine fails; Ctrl+C stops it)
 serve *args:
-    .\serve.ps1 --model '{{model}}' --pack '{{pack}}' --mtp '{{mtp}}' --expert-profile '{{profile}}' --ctx {{ctx}} {{args}}
+    .\serve.ps1 --host 0.0.0.0 --model '{{model}}' --pack '{{pack}}' --mtp '{{mtp}}' --expert-profile '{{profile}}' --ctx {{ctx}} {{args}}
 
 # run the server for Qwen3.8 Flash-Next IQ3_XXS (the full model) the same way; it shares the Coder's draft head
 serve-iq3 *args:
-    .\serve.ps1 --model '{{iq3_model}}' --pack '{{iq3_pack}}' --mtp '{{mtp}}' --ctx {{ctx}} {{args}}
+    .\serve.ps1 --host 0.0.0.0 --model '{{iq3_model}}' --pack '{{iq3_pack}}' --mtp '{{mtp}}' --ctx {{ctx}} {{args}}
