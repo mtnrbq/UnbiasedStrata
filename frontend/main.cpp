@@ -9,6 +9,7 @@
 // The tokenizer and the chat template come from llama.cpp (the pinned submodule): the GGUF's own vocabulary and
 // its own Jinja template.  Nothing here opens an outgoing connection.
 #include "engine.hpp"
+#include "literals.hpp"
 #include "memory_plan.hpp"
 #include "model.hpp"
 #include "vision.hpp"
@@ -152,6 +153,67 @@ struct Server {
     const llama_vocab* vocab = nullptr;
     common_chat_templates_ptr tmpls;
 
+    // The texts of the vocabulary's control tokens and marker-like added tokens. Inside a message they are text:
+    // "<|im_end|>" in a file an agent read must not end the turn (literals.hpp).
+    strata_frontend::Literals literals;
+
+    /// Collects the literals from the vocabulary; call once `vocab` is set.
+    void init_literals() {
+        std::vector<std::string> texts;
+        const int32_t n = llama_vocab_n_tokens(vocab);
+        for (int32_t id = 0; id < n; ++id) {
+            const llama_token_attr attr = llama_vocab_get_attr(vocab, id);
+            const char* text = llama_vocab_get_text(vocab, id);
+            if (text == nullptr || *text == '\0') continue;
+            if ((attr & LLAMA_TOKEN_ATTR_CONTROL) ||
+                ((attr & LLAMA_TOKEN_ATTR_USER_DEFINED) && strata_frontend::Literals::marker_like(text)))
+                texts.emplace_back(text);
+        }
+        literals = strata_frontend::Literals::from_texts(std::move(texts));
+    }
+
+    /// The first UTF-8 character boundary at or after the middle of `s`; 0 when `s` is one character.
+    static size_t utf8_half(const std::string& s) {
+        size_t cut = s.size() / 2;
+        while (cut < s.size() && ((unsigned char) s[cut] & 0xC0) == 0x80) ++cut;
+        return cut < s.size() ? cut : 0;
+    }
+
+    /// `text` tokenized as text. Special tokens are not parsed, but the tokenizer still matches an added token
+    /// (USER_DEFINED: <think>, <tool_call> in Qwen's vocabulary) anyway: such a token is split in two and each half
+    /// tokenized again, until no piece is one. A one-character added token is that character.
+    void tokenize_plain(const std::string& text, std::vector<llama_token>& out) const {
+        for (llama_token t : common_tokenize(vocab, text, false, false)) {
+            const llama_token_attr attr = llama_vocab_get_attr(vocab, t);
+            if ((attr & (LLAMA_TOKEN_ATTR_CONTROL | LLAMA_TOKEN_ATTR_USER_DEFINED)) == 0) { out.push_back(t); continue; }
+            const std::string piece = common_token_to_piece(vocab, t, true);
+            const size_t cut = utf8_half(piece);
+            if (cut == 0) { out.push_back(t); continue; }
+            tokenize_plain(piece.substr(0, cut), out);
+            tokenize_plain(piece.substr(cut), out);
+        }
+    }
+
+    /// prompt[from, to) tokenized: the `plain` spans in it as text, the rest with special tokens parsed. Without
+    /// plain spans this is the one tokenize call it always was.
+    void tokenize_range(const std::string& prompt, size_t from, size_t to,
+                        const std::vector<std::pair<size_t, size_t>>& plain, std::vector<llama_token>& out) const {
+        auto special = [&](size_t a, size_t b) {
+            if (b <= a) return;
+            for (auto id : common_tokenize(vocab, prompt.substr(a, b - a), false, true)) out.push_back(id);
+        };
+        size_t pos = from;
+        for (const auto& s : plain) {
+            if (s.second <= pos) continue;
+            if (s.first >= to) break;
+            const size_t a = std::max(s.first, pos), b = std::min(s.second, to);
+            special(pos, a);
+            tokenize_plain(prompt.substr(a, b - a), out);
+            pos = b;
+        }
+        special(pos, to);
+    }
+
     /// Parses an OpenAI chat request, renders the model's chat template and tokenizes the result.
     bool prepare(const common_json& body, Prepared& p, std::string& err) {
         if (!body.is_object() || !body.contains("messages")) { err = "the request needs a \"messages\" array"; return false; }
@@ -174,9 +236,13 @@ struct Server {
                 }
             }
         }
+        // a control token's text inside a message or a tool definition is swapped for a mark the template passes
+        // through; after rendering the marks are swapped back and those spans are tokenized as text (literals.hpp)
+        common_json tools = body.contains("tools") ? body.at("tools") : common_json();
+        const bool marked = literals.mark_request(messages, tools.is_array() ? &tools : nullptr);
         in.messages = common_chat_msgs_parse_oaicompat(messages);
-        if (body.contains("tools") && body.at("tools").is_array() && body.at("tools").size() > 0) {
-            in.tools = common_chat_tools_parse_oaicompat(body.at("tools"));
+        if (tools.is_array() && tools.size() > 0) {
+            in.tools = common_chat_tools_parse_oaicompat(tools);
             if (body.contains("tool_choice") && body.at("tool_choice").is_string())
                 in.tool_choice = common_chat_tool_choice_parse_oaicompat(body.at("tool_choice").get<std::string>());
             const auto caps = common_chat_templates_get_caps(tmpls.get());
@@ -200,9 +266,12 @@ struct Server {
                 in.chat_template_kwargs["reasoning_effort"] = kw.at("reasoning_effort").dump();
         }
         const common_chat_params cp = common_chat_templates_apply(tmpls.get(), in);
-        std::string rendered = cp.prompt;
+        std::string prompt = cp.prompt;
+        const auto plain = marked ? literals.unmark(prompt) : std::vector<std::pair<size_t, size_t>>{};
+        std::string rendered = prompt;
+        p.ids.clear();
         if (images.empty()) {
-            p.ids = common_tokenize(vocab, rendered, false, true);
+            tokenize_range(prompt, 0, prompt.size(), plain, p.ids);
         } else {
             const auto pad = common_tokenize(vocab, "<|image_pad|>", false, true);
             const auto literal_pad = common_tokenize(vocab, "<|image_pad|>", false, false);
@@ -210,26 +279,27 @@ struct Server {
             const auto end = common_tokenize(vocab, "<|vision_end|>", false, true);
             if (pad.size() != 1 || start.size() != 1 || end.size() != 1)
                 throw std::runtime_error("model does not have the expected image special tokens");
-            auto text_ids = [&](const std::string& text) {
-                for (auto id : common_tokenize(vocab, text, false, true)) {
+            auto text_ids = [&](size_t from, size_t to) {
+                std::vector<llama_token> ids;
+                tokenize_range(prompt, from, to, plain, ids);
+                for (auto id : ids) {
                     if (id == pad[0]) p.ids.insert(p.ids.end(), literal_pad.begin(), literal_pad.end());
                     else p.ids.push_back(id);
                 }
             };
             size_t offset = 0; rendered.clear();
             for (size_t i = 0; i < images.size(); ++i) {
-                auto at = cp.prompt.find(markers[i], offset);
-                if (at == std::string::npos || cp.prompt.find(markers[i], at+markers[i].size()) != std::string::npos)
+                auto at = prompt.find(markers[i], offset);
+                if (at == std::string::npos || prompt.find(markers[i], at+markers[i].size()) != std::string::npos)
                     throw std::invalid_argument("chat template did not preserve each image exactly once");
-                auto text = cp.prompt.substr(offset, at-offset);
-                text_ids(text); rendered += text + "<|vision_start|>";
+                text_ids(offset, at); rendered += prompt.substr(offset, at-offset) + "<|vision_start|>";
                 p.ids.push_back(start[0]);
                 p.ids.insert(p.ids.end(), images[i]->tokens, pad[0]);
                 for (int j = 0; j < images[i]->tokens; ++j) rendered += "<|image_pad|>";
                 p.ids.push_back(end[0]); rendered += "<|vision_end|>";
                 offset = at + markers[i].size();
             }
-            auto tail = cp.prompt.substr(offset); text_ids(tail); rendered += tail;
+            text_ids(offset, prompt.size()); rendered += prompt.substr(offset);
             p.images = std::make_shared<strata_frontend::ImageFile>();
             strata_frontend::write_images(*p.images, images);
         }
@@ -721,6 +791,7 @@ int main(int argc, char** argv) {
     }
     srv.vocab = llama_model_get_vocab(srv.model);
     srv.tmpls = common_chat_templates_init(srv.model, "");
+    srv.init_literals();
     if (!o.mmproj.empty()) {
         try { srv.vision.init(o.mmproj, srv.model, o.threads, o.vision_tokens); }
         catch (const std::exception& ex) {

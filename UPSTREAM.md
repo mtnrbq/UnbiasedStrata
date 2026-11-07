@@ -30,6 +30,10 @@ To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` 
   `docs/upstream/DETAILS.md` and the paper.
 - **Added:** `frontend/`, the C++ front end (tokenizer, chat template, output parser and HTTP API, using
   llama.cpp's code from the submodule), and a build target that links it with the engine into one binary.
+  `frontend/literals.hpp` and its test are robertkarl/UnbiasedStrata's `cd3be94` (USTRAT-14), wired into
+  this front end's `prepare`: a control token's text inside a message or a tool definition (`<|im_end|>`,
+  `<|image_pad|>`, `<think>`, ...) is tokenized as text, so a file an agent reads cannot end the turn or
+  add an image (2026-11-07).
 - **ggml / llama.cpp common (`third_party/llama.cpp`):** tool-call parser changes, kept as one file,
   `patches/llama.cpp-tool-call-parsers.patch`, and applied in the submodule's working tree:
   - The Qwen3-Coder tool-call grammar accepts a call's arguments in any order. Upstream requires the
