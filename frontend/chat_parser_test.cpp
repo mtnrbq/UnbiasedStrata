@@ -1,5 +1,7 @@
 // Exercise request preparation and final tool parsing with the actual GGUF.
 // No inference engine or CUDA context is created.
+// The checks are asserts: keep them in a Release build, which defines NDEBUG.
+#undef NDEBUG
 #define main unused_serving_main
 #include "main.cpp"
 #undef main
@@ -45,7 +47,7 @@ int main(int argc, char** argv) {
     assert(explicit_request.ids == default_request.ids);
     assert(common_chat_parse(output, false, explicit_request.parser).tool_calls.size() == 1);
     // Arguments in any order: the model writes optional parameters before required ones, and upstream's
-    // required-first rule dropped such calls without an error (patches/llama.cpp-qwen3-coder-any-argument-order.patch).
+    // required-first rule dropped such calls without an error (patches/llama.cpp-tool-call-parsers.patch).
     auto read_request = common_json::parse_no_throw(R"({
         "messages":[{"role":"user","content":"Read the file."}],
         "tools":[{"type":"function","function":{"name":"read","parameters":{
@@ -66,7 +68,21 @@ int main(int argc, char** argv) {
         assert(parsed.tool_calls[0].name == "read");
         assert(parsed.tool_calls[0].arguments.find("\"path\":\"/tmp/a.txt\"") != std::string::npos);
     }
+    // The Coder IQ1_M's slips: a repeated close tag, another stray close tag, blank lines before the closes.
+    // Each one used to turn the whole call into plain text.
+    for (const char* body : {
+             "<parameter=path>\n/tmp/a.txt\n</parameter>\n</parameter>\n</function>\n</tool_call>",
+             "<parameter=path>\n/tmp/a.txt\n</parameter>\n</content>\n</invoke>\n\n</parameter>\n"
+             "<parameter=limit>\n40\n</parameter>\n</function>\n</tool_call>",
+             "<parameter=path>\n/tmp/a.txt\n</parameter>\n\n</function>\n</tool_call>",
+             "<parameter=path>\n/tmp/a.txt\n</parameter>\n</function>\n\n</tool_call>"}) {
+        std::string text = std::string("Reasoning.\n</think>\n\n<tool_call>\n<function=read>\n") + body;
+        auto parsed = common_chat_parse(text, false, read_prepared.parser);
+        assert(parsed.tool_calls.size() == 1);
+        assert(parsed.tool_calls[0].name == "read");
+        assert(parsed.tool_calls[0].arguments.find("\"path\":\"/tmp/a.txt\"") != std::string::npos);
+    }
     llama_model_free(server.model);
     std::puts("PASS: omitted parallel_tool_calls uses the model capability; explicit false remains honored; "
-              "tool arguments parse in any order");
+              "tool arguments parse in any order; stray close tags and blank lines are skipped");
 }

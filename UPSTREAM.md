@@ -30,12 +30,19 @@ To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` 
   `docs/upstream/DETAILS.md` and the paper.
 - **Added:** `frontend/`, the C++ front end (tokenizer, chat template, output parser and HTTP API, using
   llama.cpp's code from the submodule), and a build target that links it with the engine into one binary.
-- **ggml / llama.cpp common (`third_party/llama.cpp`):** one change, kept as
-  `patches/llama.cpp-qwen3-coder-any-argument-order.patch` and applied in the submodule's working tree:
-  the Qwen3-Coder tool-call grammar accepts a call's arguments in any order. Upstream requires the
-  required arguments first; Qwen3.8 Flash-Next often writes the optional ones first (`limit`, `offset`,
-  `path`), and because the grammar's tool-call group is optional and has no end anchor, such a call was
-  dropped silently: the client got `finish_reason=stop` and an empty answer (2026-10-08).
+- **ggml / llama.cpp common (`third_party/llama.cpp`):** tool-call parser changes, kept as one file,
+  `patches/llama.cpp-tool-call-parsers.patch`, and applied in the submodule's working tree:
+  - The Qwen3-Coder tool-call grammar accepts a call's arguments in any order. Upstream requires the
+    required arguments first; Qwen3.8 Flash-Next often writes the optional ones first (`limit`, `offset`,
+    `path`), and because the grammar's tool-call group is optional and has no end anchor, such a call was
+    dropped silently: the client got `finish_reason=stop` and an empty answer (2026-10-08).
+  - The same for the other tool-call formats (the auto-generated grammar and DeepSeek's), from
+    robertkarl/llama.cpp `a6de9af`.
+  - The Qwen3-Coder grammar skips the slips the Coder IQ1_M makes when sampled without the grammar: a
+    repeated `</parameter>`, any other stray close tag between arguments, and blank lines before
+    `</function>` or `</tool_call>`. Without this the call reached the client as plain text. From
+    robertkarl/llama.cpp `638a7e2`, `4174b21` (without its `tools/server` part, which this build does not
+    compile) and `385445f` (2026-11-07).
 - **Engine source (`src/`, `include/`):** four changes, three for loading from a slow or remote store. The
   engine's own program is compiled into the binary with its entry point renamed; the front end starts it
   as a child process.

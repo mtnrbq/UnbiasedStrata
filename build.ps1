@@ -85,7 +85,7 @@ Write-Host "build.ps1: Visual Studio at $vs, CUDA $cudaVersion at $cuda"
 if (-not (Test-Path "third_party\llama.cpp\ggml\CMakeLists.txt")) {
     Fail "third_party\llama.cpp is empty: run 'git submodule update --init' first"
 }
-$patch = "..\..\patches\llama.cpp-qwen3-coder-any-argument-order.patch"
+$patch = "..\..\patches\llama.cpp-tool-call-parsers.patch"
 & git -C third_party\llama.cpp apply --check --reverse $patch 2>$null
 if ($LASTEXITCODE -ne 0) {
     & git -C third_party\llama.cpp apply $patch
