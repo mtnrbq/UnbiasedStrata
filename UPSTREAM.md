@@ -4,7 +4,7 @@
 
 | What | Where | Version |
 | --- | --- | --- |
-| Engine | https://github.com/Niko1221/Strata | tag `v0.1.43`, commit `7695859aa13afb248bdb4d36f9b2e95707db079d`, engine 0.1.43 |
+| Engine | https://github.com/Niko1221/Strata | tag `v0.2.12`, commit `146df3c468739147f520ac3816de806f71232571`, engine 0.1.58 |
 | ggml (CPU backend, CUDA matrix kernels) | https://github.com/ggml-org/llama.cpp, as the submodule `third_party/llama.cpp` | commit `3cf03257f219afbe7334045ff7c6a06ac68c627d`, the one upstream Strata pins |
 
 The first commit of this repository is the upstream snapshot as published, engine 0.1.39 (commit `6f32ec0`; upstream
@@ -17,7 +17,17 @@ range was taken: not the Python server, setup or tools, the benchmarks, the test
 the experimental ports beyond the tag (robertkarl/UnbiasedStrata#2 was used as a reference only).
 It was moved to 0.1.43 the same way, with `git diff v0.1.42 v0.1.43 -- src include cmake CMakeLists.txt` (44
 upstream commits that touch those paths; 24 files), which applied without conflicts.
-To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` with upstream's tag `v0.1.43`.
+
+It was moved to engine 0.1.58, upstream's tag `v0.2.12` (from 0.2.0 on, upstream's release tags number the app;
+the engine keeps its own number), by taking `src include cmake CMakeLists.txt` and `third_party/` (all but
+`llama.cpp`) as they are at that tag and merging this fork's four changed files with a 3-way merge against
+`v0.1.43` (1497 upstream commits that touch those paths; 534 files, most of them new: DeepSeek-V4.1, the
+all-cards split engine, the DFlash2 drafter and other GPUs' kernels). `third_party/` now has upstream's copied
+headers (`ggml-tq/`, needed by the build) and the licence notices of the code upstream borrowed. Measured on the
+Coder IQ1_M at 64K on an RTX 50 card, alternating 4 runs: decode 110 tok/s against 107 for 0.1.43, prompts the
+same (2026-11-09). The pack and draft head below load unchanged.
+To see only this fork's engine changes, compare `src/`, `include/`, `cmake/` and `third_party/` with upstream's
+tag `v0.2.12`.
 
 ## What this fork changed
 
@@ -56,19 +66,22 @@ To see only this fork's engine changes, compare `src/`, `include/` and `cmake/` 
     offset and error when it fails. On Windows, where `robust_read.hpp` is not built, it keeps upstream's
     `fread` (#230), with the progress and the named errors.
   - `src/kernels/ngram.cpp`: on Linux, `--ple-io ram` reads the n-gram table into memory of its own with 16
-    readers, where upstream locks the file mapping (which fails under a container's `ulimit -l`). On Windows
-    upstream's own path is kept: it locks the mapping with `VirtualLock` (new in 0.1.42).
+    readers, where upstream locks the file mapping (which fails under a container's `ulimit -l`; 0.1.58 raises
+    the soft limit first, which a container's hard limit still stops). On Windows upstream's own path is kept:
+    it locks the mapping with `VirtualLock` (new in 0.1.42).
   - `src/program/generate.cpp`: the stall report names the stage the decode loop was in, and lists the
     threads' wait channels on Linux.
 
 Code paths for other models and for AMD cards are still present in the engine source. They are not built by
 `make build` or `build.ps1`, not tested and not supported here. The engine's Windows paths are upstream's and are
-used; the retrying reads above are Linux only. In `CMakeLists.txt`, the tests and the ISA checker that live in
-upstream's `tests/` and `tools/` are built only when those are present.
+used; the retrying reads above are Linux only. In `CMakeLists.txt`, the tests, benchmarks and tools whose
+sources live in upstream's `tests/`, `bench/` and `tools/` (not imported) are built only when `tests/` is
+present (`_strata_test_tree`); upstream builds some of them even with `STRATA_BUILD_TESTS=OFF`.
 
 ## Prepared model files
 
-The pack and the draft head are produced once with upstream Strata's tools at the commit above. These are
+The pack and the draft head were produced once with upstream Strata's tools at engine 0.1.39-0.1.43 (0.1.58
+loads them unchanged). These are
 the commands that were used, with `U` an upstream checkout, `G` this repository's
 `third_party/llama.cpp/gguf-py`, and Python 3 with `numpy` and `regex`:
 

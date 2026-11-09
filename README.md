@@ -104,7 +104,9 @@ Run, with the same options as on Linux:
   from RAM (`--kv-resident 32768`, chosen automatically above 32K when RAM allows): 114.5 tokens/s generating
   with overlap (five runs), 111.7 without; reading a prompt, about 2,990 tokens/s. At 32K, 118.4 without overlap
   (one run). Engine 0.1.42 without overlap: 108.6 at 64K; engine 0.1.39, 83.8 at 32K and 86.7 at 64K. Upstream
-  Strata 0.1.41's own server with its own config, measured the same day: 94.6 at 64K.
+  Strata 0.1.41's own server with its own config, measured the same day: 94.6 at 64K. Engine 0.1.58 (upstream
+  `v0.2.12`) against 0.1.43 on a later day, 4 alternating runs at 64K with overlap: 110 against 107 generating,
+  prompts the same.
 - The engine runs in a Job Object: when the server ends, even by a crash or `Stop-Process -Force`, the engine
   ends with it and the GPU is freed.
 - With `--mmproj`, image files go to an `images` folder beside the program, whose path must not contain a space
@@ -156,7 +158,8 @@ produce, are in [UPSTREAM.md](UPSTREAM.md).
 ## Status
 
 Checked on one machine: RTX 3090, 32 vCPUs of an EPYC 7763, 125 GB RAM, CUDA 12.8, in a container. The checks and
-speeds in this section are from engine 0.1.39: 0.1.42 and 0.1.43 have been built and run on Windows only so far.
+speeds in this section are from engine 0.1.39: 0.1.42, 0.1.43 and 0.1.58 have been built and run on Windows only so
+far.
 
 | | |
 | --- | --- |
@@ -189,15 +192,15 @@ builds differ in compile flags and in how the n-gram table is held in RAM, and e
 
 ## Compared with upstream Strata
 
-| | Upstream at the import (0.1.39, `6f32ec0`) | This fork (engine 0.1.43) |
+| | Upstream at the import (0.1.39, `6f32ec0`) | This fork (engine 0.1.58) |
 | --- | --- | --- |
-| Engine source (`src/`, `include/`) | 272 files | upstream 0.1.43 (338 files) with three files changed and one added (retrying reads from slow stores, stall diagnostics); see UPSTREAM.md |
+| Engine source (`src/`, `include/`) | 272 files | upstream 0.1.58, tag `v0.2.12` (687 files) with three files changed and one added (retrying reads from slow stores, stall diagnostics); see UPSTREAM.md |
 | Build | clones llama.cpp during CMake | pinned submodule, fetches nothing; one patch, applied by `make build`: tool-call arguments in any order (see UPSTREAM.md) |
 | Setup | Python installer downloads the model and builds the pack and draft head | none; files must already exist |
 | Server | Python | C++, in the same binary (`frontend/`), with the image encoder from llama.cpp's `mtmd` |
 | Python | 33,745 lines | 0 |
-| C, C++ and CUDA | 208,254 lines (with tests and the Intel port) | 117,231 lines |
-| Tracked files | 851, 27 MB | 377, 8 MB |
+| C, C++ and CUDA | 208,254 lines (with tests and the Intel port) | 267,661 lines (most of the growth is upstream's code for other models and GPUs) |
+| Tracked files | 851, 27 MB | 744, 17 MB |
 | Configurations | several models, NVIDIA, AMD and Intel, Linux and Windows, multi-GPU | two models, one NVIDIA card, Linux and Windows |
 
 ## Credits and licence
