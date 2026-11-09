@@ -1,8 +1,10 @@
 // frontend/model.hpp - the models this front end serves, and which one a GGUF is.
 //
 // Two releases of Qwen3.8-Flash-Next, told apart by the GGUF itself: the Coder keeps 256 of the 512 experts and
-// comes in one size (IQ1_M); the full model is served at IQ3_XXS only, which only its file name says.  Anything
-// else is refused, as before: the engine runs other packs, but nothing here was checked against them.
+// comes in one size (IQ1_M); the full model is served at IQ3_XXS only, which only its file name says.  And
+// Qwen3.6-35B-A3B (GGUF architecture qwen35moe), Unsloth's UD-Q6_K_XL with the MTP block: the engine runs it on its
+// own path (src/qwen35), from the one GGUF, with no pack, n-gram table or separate draft head.  Anything else is
+// refused, as before: the engine runs other packs, but nothing here was checked against them.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -16,6 +18,8 @@ struct ModelInfo {
     const char* spec_min_p;    // the draft probability a speculative window needs
     const char* const* engine_args;   // more engine arguments, nullptr-terminated
     const char* const* engine_env;    // NAME=value for the engine, unless already set; nullptr-terminated
+    bool own_path = false;     // Qwen3.6: one GGUF, no pack / n-gram table / draft head, none of Flash-Next's settings
+    double ram_gb = 0;         // own path: the RAM upstream's setup plans for (the GGUF's experts are copied to RAM)
 };
 
 // IQ3_XXS: the values this fork was measured with.  Coder IQ1_M: upstream's tested config on an RTX 5070 Ti, where
@@ -31,9 +35,19 @@ inline constexpr ModelInfo kFlashNextIq3Xxs{"qwen3.8-flash-next-iq3_xxs", "Qwen3
                                             kNone, kNone};
 inline constexpr ModelInfo kCoderIq1M{"qwen3.8-flash-next-coder-iq1_m", "Qwen3.8-Flash-Next Coder IQ1_M", 23.4, "0.70",
                                       kCoderArgs, kCoderEnv};
+// Qwen3.6-35B-A3B UD-Q6_K_XL: upstream's setup (v0.2.12, OWN_PATH_FAMILIES) starts it with `--prefill auto --mtp 2`
+// (2 drafts per step, measured best on an R9700) and plans 44 GB of RAM for it.
+inline constexpr const char* kQwen36Args[] = {"--mtp", "2", nullptr};
+inline constexpr ModelInfo kQwen36Q6{"qwen3.6-35b-a3b-ud-q6_k_xl", "Qwen3.6-35B-A3B UD-Q6_K_XL", 0.0, nullptr,
+                                     kQwen36Args, kNone, true, 44.0};
 
-// `name` is general.name, `experts` qwen4exp.expert_count, `file` shard 1's path.  nullptr: not a served model.
-inline const ModelInfo* identify_model(const std::string& name, int64_t experts, const std::string& file) {
+// `arch` is general.architecture, `name` general.name, `experts` <arch>.expert_count, `file` the model's path (shard
+// 1 for Flash-Next).  nullptr: not a served model.
+inline const ModelInfo* identify_model(const std::string& arch, const std::string& name, int64_t experts,
+                                       const std::string& file) {
+    if (arch == "qwen35moe")
+        return experts == 256 && file.find("Qwen3.6-35B-A3B-UD-Q6_K_XL") != std::string::npos ? &kQwen36Q6 : nullptr;
+    if (arch != "qwen4exp") return nullptr;
     if (experts == 256 && name.find("Coder") != std::string::npos) return &kCoderIq1M;
     if (experts == 512 && name.find("Coder") == std::string::npos && file.find("-IQ3_XXS-") != std::string::npos)
         return &kFlashNextIq3Xxs;
