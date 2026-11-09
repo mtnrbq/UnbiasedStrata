@@ -1,9 +1,0 @@
-A new session would pick that up automatically.
-
-The order after you sign in:
-
-Grant Lock pages in memory in secpol.msc. If you haven't already, do it before signing out, so the sign-in picks it up.
-Sign out and back in.
-Close the GPU apps (LM Studio, NVIDIA Overlay, browsers).
-In an Administrator PowerShell: pwsh -File D:\UnbiasedStrata\build\bench\ab-largepages.ps1
-Reopen this session and tell me it's done.

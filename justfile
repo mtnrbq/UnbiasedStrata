@@ -21,7 +21,7 @@ iq3_pack := iq3_data + '\packs\iq3-xxs'
 build *args:
     .\build.ps1 -CudaArchs 120 {{args}}
 
-# run the server for Qwen3.8 Flash-Next Coder IQ1_M on 127.0.0.1:8080 (restarted if the engine fails; Ctrl+C stops it)
+# run the server for Qwen3.8 Flash-Next Coder IQ1_M on 0.0.0.0:8080 (reachable from the network) (restarted if the engine fails; Ctrl+C stops it)
 serve *args:
     .\serve.ps1 --host 0.0.0.0 --model '{{model}}' --pack '{{pack}}' --mtp '{{mtp}}' --expert-profile '{{profile}}' --ctx {{ctx}} {{args}}
 
