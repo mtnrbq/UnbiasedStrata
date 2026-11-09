@@ -1,0 +1,199 @@
+diff --git a/common/chat-auto-parser-generator.cpp b/common/chat-auto-parser-generator.cpp
+index b78789d..bfd762c 100644
+--- a/common/chat-auto-parser-generator.cpp
++++ b/common/chat-auto-parser-generator.cpp
+@@ -391,22 +391,21 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
+             }
+         });
+ 
+-        // Build required arg sequence in definition order
+-        common_peg_parser args_seq = p.eps();
+-        for (size_t i = 0; i < required_parsers.size(); i++) {
+-            if (i > 0) {
+-                args_seq = args_seq + p.space();
+-            }
+-            args_seq = args_seq + required_parsers[i];
++        // UnbiasedStrata 2: every argument, required or optional, in any order. Upstream requires the required
++        // arguments in the schema's order, which holds when its sampler is constrained by this grammar; here the
++        // engine samples unconstrained and DeepSeek V4 Flash and GLM 5.3 Flash write `content` before `path` for a
++        // `write` tool that declares `path` first, so the finished, well-formed call failed to parse. A missing
++        // required argument is left for the client to report, as it is for optional-only tools.
++        common_peg_parser any_arg = p.choice();
++        for (const auto & req : required_parsers) {
++            any_arg |= req;
+         }
+-
+-        // Build optional args with flexible ordering
+-        if (!optional_parsers.empty()) {
+-            common_peg_parser any_opt = p.choice();
+-            for (const auto & opt : optional_parsers) {
+-                any_opt |= opt;
+-            }
+-            args_seq = args_seq + p.repeat(p.space() + any_opt, 0, -1);
++        for (const auto & opt : optional_parsers) {
++            any_arg |= opt;
++        }
++        common_peg_parser args_seq = p.eps();
++        if (!required_parsers.empty() || !optional_parsers.empty()) {
++            args_seq = p.repeat(p.space() + any_arg, required_parsers.empty() ? 0 : 1, -1);
+         }
+ 
+         if (!arguments.start.empty()) {
+diff --git a/common/parsers/deepseek.cpp b/common/parsers/deepseek.cpp
+index 9ca4bb3..ae538f0 100644
+--- a/common/parsers/deepseek.cpp
++++ b/common/parsers/deepseek.cpp
+@@ -178,20 +178,18 @@ common_chat_params common_chat_params_init_deepseek_v3_2(const common_chat_templ
+                     }
+                 });
+ 
+-                common_peg_parser args_seq = p.eps();
+-                for (size_t i = 0; i < required_parsers.size(); i++) {
+-                    if (i > 0) {
+-                        args_seq = args_seq + p.space();
+-                    }
+-                    args_seq = args_seq + required_parsers[i];
++                // UnbiasedStrata 2: every argument in any order (see common/chat-auto-parser-generator.cpp for the reason:
++                // this engine samples unconstrained, and DeepSeek V4 Flash writes `content` before `path`).
++                common_peg_parser any_arg = p.choice();
++                for (const auto & req : required_parsers) {
++                    any_arg |= req;
+                 }
+-
+-                if (!optional_parsers.empty()) {
+-                    common_peg_parser any_opt = p.choice();
+-                    for (const auto & opt : optional_parsers) {
+-                        any_opt |= opt;
+-                    }
+-                    args_seq = args_seq + p.repeat(p.space() + any_opt, 0, -1);
++                for (const auto & opt : optional_parsers) {
++                    any_arg |= opt;
++                }
++                common_peg_parser args_seq = p.eps();
++                if (!required_parsers.empty() || !optional_parsers.empty()) {
++                    args_seq = p.repeat(p.space() + any_arg, required_parsers.empty() ? 0 : 1, -1);
+                 }
+ 
+                 common_peg_parser invoke_body = args_seq;
+diff --git a/common/parsers/qwen3-coder.cpp b/common/parsers/qwen3-coder.cpp
+index 208f551..71ba34e 100644
+--- a/common/parsers/qwen3-coder.cpp
++++ b/common/parsers/qwen3-coder.cpp
+@@ -139,12 +139,26 @@ common_chat_params common_chat_params_init_qwen3_coder(const common_chat_templat
+                     (param.required ? required_args : optional_args).push_back(arg_rule);
+                 });
+ 
+-                // Accept required arguments in any order, as Qwen does not always adhere to the
+-                // order provided.
+-                auto args = p.permute("tool-" + name + "-args", required_args);
+-                if (!optional_args.empty()) {
+-                    args = args + p.zero_or_more(p.choice(optional_args));
+-                }
++                // Accept the arguments in any order, required and optional interleaved. The upstream rule
++                // took the required ones first and the optional ones after; Qwen3.8 Flash-Next often writes
++                // the optional ones first (limit, offset, path), and because the tool-call group below is
++                // optional and the grammar has no end anchor, such a call was dropped without any error:
++                // the client got finish_reason=stop and an empty answer. Whether every required argument
++                // is present is for the tool to report; a dropped call reports nothing.
++                std::vector<common_peg_parser> all_args = required_args;
++                all_args.insert(all_args.end(), optional_args.begin(), optional_args.end());
++                // UnbiasedStrata: a stuttered close tag. Qwen3.8 Flash-Next Coder IQ1_M, sampled without this
++                // grammar, writes `</parameter>` twice before `</function>` in about 1 % of its calls (7 of 673
++                // requests in a BBW run, 2026-10-20). The stray tag is skipped; the value still ends at the first
++                // close. Without this the whole call failed to parse: the partial parse had already streamed it,
++                // so the diff check threw and the request ended with a 500 mid-stream (issue #17).
++                // Generalised 2026-10-21 after the third shape of the slip (prime-frontend: `</parameter>`,
++                // `</content>`, `</invoke>`, a blank line, `</parameter>` again, then `</function>`): any close tag
++                // that is not `</function>` or `</tool_call>` is skipped between arguments, as is a blank line.
++                auto stray_close = p.negate(p.literal("</function>")) + p.negate(p.literal("</tool_call>")) +
++                                   p.literal("</") + p.chars("[a-zA-Z_]") + p.literal(">\n");
++                auto blank_line  = p.literal("\n");
++                auto args = all_args.empty() ? p.eps() : p.zero_or_more(p.choice(all_args) | stray_close | blank_line);
+ 
+                 auto func = p.tool(p.tool_open("<function=" + p.tool_name(p.literal(name)) + ">\n") +
+                                    p.tool_args(args) +
+@@ -155,7 +169,7 @@ common_chat_params common_chat_params_init_qwen3_coder(const common_chat_templat
+ 
+             auto min_calls = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_REQUIRED ? 1 : 0;
+ 
+-            auto tool_call_body = tool_choice + "</tool_call>" + p.space();
++            auto tool_call_body = tool_choice + p.space() + "</tool_call>" + p.space();
+             auto tool_call      = p.rule("tool-call", "<tool_call>\n" + tool_call_body);
+ 
+             // Qwen3-Coder models may occasionally omit the <tool_call> token.
+diff --git a/tests/test-chat.cpp b/tests/test-chat.cpp
+index 13733c1..38202e0 100644
+--- a/tests/test-chat.cpp
++++ b/tests/test-chat.cpp
+@@ -3556,6 +3556,71 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
+             .expect_reconstruction()
+             .run();
+ 
++        // UnbiasedStrata: a stuttered close tag. Qwen3.8 Flash-Next Coder IQ1_M, sampled without the grammar, writes
++        // `</parameter>` twice before `</function>` in about 1 % of its calls; the value ends at the first close and the
++        // stray tag is skipped (it used to wipe the whole call from the partial parse, then fail the stream).
++        tst.test(
++               "<tool_call>\n"
++               "<function=special_function>\n"
++               "<parameter=arg1>\n"
++               "1\n"
++               "</parameter>\n"
++               "</parameter>\n"
++               "</function>\n"
++               "</tool_call>")
++            .tools({ special_function_tool })
++            .expect(message_assist_call)
++            .run();
++
++        // UnbiasedStrata: the same shard leaves a blank line between the last `</parameter>` and `</function>`, and
++        // between `</function>` and `</tool_call>` (memcached-bisect-deep, 2026-10-21). Blank lines are skipped.
++        tst.test(
++               "<tool_call>\n"
++               "<function=special_function>\n"
++               "<parameter=arg1>\n"
++               "1\n"
++               "</parameter>\n"
++               "\n"
++               "</function>\n"
++               "</tool_call>")
++            .tools({ special_function_tool })
++            .expect(message_assist_call)
++            .run();
++
++        tst.test(
++               "<tool_call>\n"
++               "<function=special_function>\n"
++               "<parameter=arg1>\n"
++               "1\n"
++               "</parameter>\n"
++               "\n"
++               "\n"
++               "</function>\n"
++               "\n"
++               "</tool_call>")
++            .tools({ special_function_tool })
++            .expect(message_assist_call)
++            .run();
++
++        // UnbiasedStrata: the third shape (prime-frontend, 2026-10-21): stray close tags of other tool-call
++        // dialects after the real close, then a blank line and a second `</parameter>`. Any close tag that is not
++        // `</function>` or `</tool_call>` is skipped between arguments.
++        tst.test(
++               "<tool_call>\n"
++               "<function=special_function>\n"
++               "<parameter=arg1>\n"
++               "1\n"
++               "</parameter>\n"
++               "</content>\n"
++               "</invoke>\n"
++               "\n"
++               "</parameter>\n"
++               "</function>\n"
++               "</tool_call>")
++            .tools({ special_function_tool })
++            .expect(message_assist_call)
++            .run();
++
+         // Some models skip the opening <tool_call> and go straight to <function=>
+         tst.test(
+                "<function=special_function>\n"

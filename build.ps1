@@ -63,6 +63,13 @@ function Invoke-FrontendTests {
                         /external:W0 @inc frontend\main.cpp 2>&1
         if ($LASTEXITCODE -ne 0) { $log | Write-Host; Fail "frontend\main.cpp does not compile" }
         Write-Host "build.ps1: frontend\main.cpp compiles (MSVC /W4 /WX)"
+        # literals.hpp against the nlohmann json that common_json copies
+        $exe = Join-Path $out "literals-test.exe"
+        $log = & cl.exe /nologo /std:c++20 /EHsc /W4 /WX /D_CRT_SECURE_NO_WARNINGS /external:W0 /external:I "$l\vendor" `
+                        "/Fe:$exe" "/Fo:$out\" frontend\literals_test.cpp 2>&1
+        if ($LASTEXITCODE -ne 0) { $log | Write-Host; Fail "frontend\literals_test.cpp did not compile" }
+        & $exe
+        if ($LASTEXITCODE -ne 0) { Fail "literals-test failed" }
     }
     Write-Host "build.ps1: front end tests passed" -ForegroundColor Green
 }
@@ -85,7 +92,7 @@ Write-Host "build.ps1: Visual Studio at $vs, CUDA $cudaVersion at $cuda"
 if (-not (Test-Path "third_party\llama.cpp\ggml\CMakeLists.txt")) {
     Fail "third_party\llama.cpp is empty: run 'git submodule update --init' first"
 }
-$patch = "..\..\patches\llama.cpp-qwen3-coder-any-argument-order.patch"
+$patch = "..\..\patches\llama.cpp-tool-call-parsers.patch"
 & git -C third_party\llama.cpp apply --check --reverse $patch 2>$null
 if ($LASTEXITCODE -ne 0) {
     & git -C third_party\llama.cpp apply $patch
