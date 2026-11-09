@@ -470,6 +470,9 @@ struct Server {
         if (final_msg.tool_calls.empty() && text.find("<tool_call>") != std::string::npos) {
             // The parser accepts a message with no tool call even when the text holds one it could not
             // match (see third_party/llama.cpp/common/parsers/qwen3-coder.cpp); say so, with the text.
+            // The client gets the raw call too (message.malformed_tool_call), so an agent can show the model
+            // what it got wrong; finish_reason stays "stop" for clients that do not know the field.
+            r.malformed_tool_call = text.substr(text.find("<tool_call>"));
             std::fprintf(stderr, "unbiased-strata: request %s: the output contains <tool_call> but no tool call was "
                                  "parsed; the client sees finish=stop. raw-output-begin\n%s\n"
                                  "unbiased-strata: request %s raw-output-end\n",
@@ -512,6 +515,7 @@ struct Server {
             common_json choice = common_json::object();
             choice["index"] = 0;
             choice["message"] = msg.to_json_oaicompat();
+            if (!r.malformed_tool_call.empty()) choice["message"]["malformed_tool_call"] = r.malformed_tool_call;
             choice["finish_reason"] = finish_reason(r, msg);
             common_json out = common_json::object();
             out["id"] = id;
@@ -573,7 +577,9 @@ struct Server {
             });
             if (ok) {
                 if (r.ok) {
-                    chunk(common_json::object(), finish_reason(r, msg), &r);
+                    common_json last = common_json::object();
+                    if (!r.malformed_tool_call.empty()) last["malformed_tool_call"] = r.malformed_tool_call;
+                    chunk(last, finish_reason(r, msg), &r);
                 } else {
                     common_json e = common_json::object();
                     e["error"] = common_json::object();

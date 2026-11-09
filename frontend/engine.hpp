@@ -17,6 +17,7 @@ struct GenResult {
     std::string finish = "length";
     long long produced = 0, prompt_n = 0, draft_accepted = 0, draft_offered = 0;
     double prompt_ms = 0, decode_ms = 0;
+    std::string malformed_tool_call;   // the raw text from "<tool_call>" on, when the parser matched no tool call
 };
 
 class Engine {
