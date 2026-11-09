@@ -64,10 +64,12 @@ struct Options {
 
 void usage() {
     std::fprintf(stderr,
-        "usage: unbiased-strata --model SHARD1.gguf --pack DIR --mtp DIR [options] [-- engine options]\n\n"
-        "  --model PATH    the model's first GGUF shard (...-00001-of-00002.gguf); the second must be beside it\n"
-        "  --pack DIR      the prepared pack for that model\n"
-        "  --mtp DIR       the prepared draft head\n"
+        "usage: unbiased-strata --model SHARD1.gguf --pack DIR --mtp DIR [options] [-- engine options]\n"
+        "       unbiased-strata --model Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf [options] [-- engine options]\n\n"
+        "  --model PATH    Flash-Next: the first GGUF shard (...-00001-of-00002.gguf), the second beside it;\n"
+        "                  Qwen3.6-35B-A3B: its one GGUF (no pack, draft head or n-gram table)\n"
+        "  --pack DIR      the prepared pack for that model (Flash-Next only)\n"
+        "  --mtp DIR       the prepared draft head (Flash-Next only)\n"
         "  --expert-profile PATH  the expert profile (default: the pack's expert-profile.bin)\n"
         "  --mmproj PATH   enable image input using this vision encoder (CPU)\n"
         "  --vision-tokens N  maximum tokens per image (default 1024)\n"
@@ -687,7 +689,7 @@ bool parse_args(int argc, char** argv, Options& o) {
         else if (a == "-h" || a == "--help") return false;
         else { std::fprintf(stderr, "unbiased-strata: unknown option %s\n\n", a.c_str()); return false; }
     }
-    return !o.model.empty() && !o.pack.empty() && !o.mtp.empty();
+    return !o.model.empty();   // --pack and --mtp are checked once the GGUF says which model it is
 }
 
 }  // namespace
@@ -706,31 +708,25 @@ int main(int argc, char** argv) {
     if (!parse_args(argc, argv, o)) { usage(); return 2; }
 
     // every file the engine needs must already be here: nothing is fetched
-    std::string shard2 = o.model;
-    const size_t at = shard2.rfind("-00001-of-00002");
-    if (at == std::string::npos) {
-        std::fprintf(stderr, "unbiased-strata: --model must be the first shard (...-00001-of-00002.gguf)\n");
-        return 2;
-    }
-    shard2.replace(at, 15, "-00002-of-00002");
-    const std::string profile = o.expert_profile.empty() ? o.pack + "/expert-profile.bin" : o.expert_profile;
-    for (const std::string& f : {o.model, shard2, o.pack + "/index.txt", profile, o.mtp + "/experts.bin",
-                                 o.mtp + "/draft_vocab.bin"})
-        if (!file_exists(f)) { std::fprintf(stderr, "unbiased-strata: missing file: %s\n", f.c_str()); return 2; }
+    if (!file_exists(o.model)) { std::fprintf(stderr, "unbiased-strata: missing file: %s\n", o.model.c_str()); return 2; }
     if (o.ctx < 1024) { std::fprintf(stderr, "unbiased-strata: --ctx must be at least 1024\n"); return 2; }
 
     // which model this is, from the GGUF's header (the tensors are not read)
     {
         gguf_init_params gp{true, nullptr};
         auto gg = std::unique_ptr<gguf_context, decltype(&gguf_free)>(gguf_init_from_file(o.model.c_str(), gp), gguf_free);
-        const int64_t kn = gg ? gguf_find_key(gg.get(), "general.name") : -1;
-        const int64_t ke = gg ? gguf_find_key(gg.get(), "qwen4exp.expert_count") : -1;
-        const std::string name = kn >= 0 ? gguf_get_val_str(gg.get(), kn) : "";
+        auto str_key = [&](const std::string& k) -> std::string {
+            const int64_t i = gg ? gguf_find_key(gg.get(), k.c_str()) : -1;
+            return i >= 0 ? gguf_get_val_str(gg.get(), i) : "";
+        };
+        const std::string arch = str_key("general.architecture"), name = str_key("general.name");
+        const int64_t ke = gg ? gguf_find_key(gg.get(), (arch + ".expert_count").c_str()) : -1;
         const int64_t experts = ke >= 0 ? (int64_t) gguf_get_val_u32(gg.get(), ke) : 0;
-        srv.info = strata_frontend::identify_model(name, experts, o.model);
+        srv.info = strata_frontend::identify_model(arch, name, experts, o.model);
         if (srv.info == nullptr) {
-            std::fprintf(stderr, "unbiased-strata: %s (%lld experts) is not a model this server supports: Qwen3.8-Flash-Next "
-                                 "IQ3_XXS or the Coder IQ1_M\n", name.empty() ? o.model.c_str() : name.c_str(), (long long) experts);
+            std::fprintf(stderr, "unbiased-strata: %s (%s, %lld experts) is not a model this server supports: "
+                                 "Qwen3.8-Flash-Next IQ3_XXS, the Coder IQ1_M, or Qwen3.6-35B-A3B UD-Q6_K_XL\n",
+                         name.empty() ? o.model.c_str() : name.c_str(), arch.c_str(), (long long) experts);
             return 2;
         }
         std::fprintf(stderr, "unbiased-strata: model: %s\n", srv.info->about);
@@ -739,25 +735,56 @@ int main(int argc, char** argv) {
     if (!o.mmproj.empty() && (!file_exists(o.mmproj) || o.vision_tokens < 16 || o.vision_tokens > 4096)) {
         std::fprintf(stderr, "unbiased-strata: --mmproj must exist and --vision-tokens must be 16..4096\n"); return 2;
     }
-    strata_frontend::MemoryPlan mem;
-    std::string merr;
-    std::error_code ec;
-    const double table_gb = (double) std::filesystem::file_size(shard2, ec) / 1e9;   // shard 2 is the n-gram table
-    if (!strata_frontend::plan_memory(strata_frontend::probe_machine(shard2), srv.info->experts_gb, ec ? 0.0 : table_gb,
-                                      o.ctx, o.ple_io, o.low_ram, mem, merr)) {
-        std::fprintf(stderr, "unbiased-strata: %s\n", merr.c_str()); return 2;
-    }
-    for (const std::string& n : mem.notes) std::fprintf(stderr, "unbiased-strata: %s\n", n.c_str());
     // the engine, started first: loading takes minutes, and on POSIX it must be forked before any thread exists
-    std::vector<std::string> eargs = {
-        "unbiased-strata", "--engine", "--serve", "--pack", o.pack, "--native", o.model, "--ple-gguf", shard2,
-        "--expert-profile", profile, "--expert-cache", "auto", "--prefill", "auto", "--spec", "4", "--spec-min-p", srv.info->spec_min_p,
-        "--mtp", o.mtp, "--max-context", std::to_string(o.ctx), "--ple-io", mem.ple_io};
-    if (mem.resident_experts) eargs.push_back("--resident-experts");
-    if (mem.kv_resident > 0) { eargs.push_back("--kv-resident"); eargs.push_back(std::to_string(mem.kv_resident)); }
-    for (const char* const* a = srv.info->engine_args; *a != nullptr; ++a) eargs.push_back(*a);
-    if (!o.mmproj.empty()) eargs.push_back("--vision");
-    if (o.ctx > 8192) { eargs.push_back("--kv"); eargs.push_back("int8"); }
+    std::vector<std::string> eargs;
+    if (srv.info->own_path) {
+        // Qwen3.6: the engine reads the one GGUF, keeps the experts it can in VRAM and the rest in RAM, and drafts with
+        // the file's own MTP block.  Flash-Next's files and settings mean nothing here.
+        if (!o.pack.empty() || !o.mtp.empty() || !o.expert_profile.empty() || o.ple_io != "auto" || o.low_ram != "auto") {
+            std::fprintf(stderr, "unbiased-strata: --pack, --mtp, --expert-profile, --ple-io and --low-ram are "
+                                 "Flash-Next settings; %s takes none of them\n", srv.info->about);
+            return 2;
+        }
+        const double ram = strata_frontend::probe_machine(o.model).ram_gb;
+        if (ram > 0 && ram < srv.info->ram_gb)
+            std::fprintf(stderr, "unbiased-strata: this PC has %.0f GB of RAM; upstream plans %.0f GB for %s\n", ram,
+                         srv.info->ram_gb, srv.info->about);
+        eargs = {"unbiased-strata", "--engine", "--serve", "--native", o.model, "--max-context", std::to_string(o.ctx),
+                 "--prefill", "auto"};
+        for (const char* const* a = srv.info->engine_args; *a != nullptr; ++a) eargs.push_back(*a);
+        if (!o.mmproj.empty()) eargs.push_back("--vision");
+    } else {
+        if (o.pack.empty() || o.mtp.empty()) { usage(); return 2; }
+        std::string shard2 = o.model;
+        const size_t at = shard2.rfind("-00001-of-00002");
+        if (at == std::string::npos) {
+            std::fprintf(stderr, "unbiased-strata: --model must be the first shard (...-00001-of-00002.gguf)\n");
+            return 2;
+        }
+        shard2.replace(at, 15, "-00002-of-00002");
+        const std::string profile = o.expert_profile.empty() ? o.pack + "/expert-profile.bin" : o.expert_profile;
+        for (const std::string& f : {shard2, o.pack + "/index.txt", profile, o.mtp + "/experts.bin",
+                                     o.mtp + "/draft_vocab.bin"})
+            if (!file_exists(f)) { std::fprintf(stderr, "unbiased-strata: missing file: %s\n", f.c_str()); return 2; }
+        strata_frontend::MemoryPlan mem;
+        std::string merr;
+        std::error_code ec;
+        const double table_gb = (double) std::filesystem::file_size(shard2, ec) / 1e9;   // shard 2 is the n-gram table
+        if (!strata_frontend::plan_memory(strata_frontend::probe_machine(shard2), srv.info->experts_gb, ec ? 0.0 : table_gb,
+                                          o.ctx, o.ple_io, o.low_ram, mem, merr)) {
+            std::fprintf(stderr, "unbiased-strata: %s\n", merr.c_str()); return 2;
+        }
+        for (const std::string& n : mem.notes) std::fprintf(stderr, "unbiased-strata: %s\n", n.c_str());
+        eargs = {
+            "unbiased-strata", "--engine", "--serve", "--pack", o.pack, "--native", o.model, "--ple-gguf", shard2,
+            "--expert-profile", profile, "--expert-cache", "auto", "--prefill", "auto", "--spec", "4", "--spec-min-p", srv.info->spec_min_p,
+            "--mtp", o.mtp, "--max-context", std::to_string(o.ctx), "--ple-io", mem.ple_io};
+        if (mem.resident_experts) eargs.push_back("--resident-experts");
+        if (mem.kv_resident > 0) { eargs.push_back("--kv-resident"); eargs.push_back(std::to_string(mem.kv_resident)); }
+        for (const char* const* a = srv.info->engine_args; *a != nullptr; ++a) eargs.push_back(*a);
+        if (!o.mmproj.empty()) eargs.push_back("--vision");
+        if (o.ctx > 8192) { eargs.push_back("--kv"); eargs.push_back("int8"); }
+    }
     if (o.threads <= 0) {
         o.threads = default_threads();
         if (o.threads > 0)

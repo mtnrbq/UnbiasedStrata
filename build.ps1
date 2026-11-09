@@ -102,7 +102,10 @@ if ($LASTEXITCODE -ne 0) {
 if ($Clean -and (Test-Path $BuildDir)) { Remove-Item -Recurse -Force $BuildDir }
 & cmake -S . -B $BuildDir -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON -DSTRATA_NATIVE_EXPERTS=ON `
         -DSTRATA_PORTABLE=ON -DSTRATA_BUILD_TESTS=OFF "-DCMAKE_CUDA_ARCHITECTURES=$CudaArchs" `
+        -DSTRATA_Q6K_EXPERTS=ON -DSTRATA_MMQ_KQUANTS=ON `
         "-DCMAKE_CUDA_COMPILER=$($nvcc -replace '\\','/')"
+# The K-quant expert and prompt kernels (Qwen3.6's Unsloth files) are on by default since engine 0.1.58; set here as
+# well, because a build folder configured by an older engine keeps them OFF in its cache.
 if ($LASTEXITCODE -ne 0) { Fail "CMake configure failed" }
 & cmake --build $BuildDir -j $Jobs --target unbiased-strata
 if ($LASTEXITCODE -ne 0) { Fail "the build failed" }

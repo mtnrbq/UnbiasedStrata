@@ -94,12 +94,20 @@ int main() {
     using strata_frontend::identify_model;
     const std::string coder = "Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf";
     const std::string full = "Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf";
-    assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO Coder", 256, coder) == &strata_frontend::kCoderIq1M);
-    assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO", 512, full) == &strata_frontend::kFlashNextIq3Xxs);
-    assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO", 512,
+    const std::string q36 = "C:/m/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf";
+    assert(identify_model("qwen4exp", "Qwen3.8-Flash-Next GSQ-RCO Coder", 256, coder) == &strata_frontend::kCoderIq1M);
+    assert(identify_model("qwen4exp", "Qwen3.8-Flash-Next GSQ-RCO", 512, full) == &strata_frontend::kFlashNextIq3Xxs);
+    assert(identify_model("qwen4exp", "Qwen3.8-Flash-Next GSQ-RCO", 512,
                           "Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf") == nullptr);   // another size
-    assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO", 256, coder) == nullptr);              // not the Coder
-    assert(identify_model("Qwen3.8-Flash-Next GSQ-RCO Coder", 512, full) == nullptr);
+    assert(identify_model("qwen4exp", "Qwen3.8-Flash-Next GSQ-RCO", 256, coder) == nullptr);   // not the Coder
+    assert(identify_model("qwen4exp", "Qwen3.8-Flash-Next GSQ-RCO Coder", 512, full) == nullptr);
+    assert(identify_model("", "Qwen3.8-Flash-Next GSQ-RCO", 512, full) == nullptr);           // no architecture
+    // Qwen3.6-35B-A3B: its own engine path, UD-Q6_K_XL only
+    assert(identify_model("qwen35moe", "Qwen3.6-35B-A3B", 256, q36) == &strata_frontend::kQwen36Q6);
+    assert(strata_frontend::kQwen36Q6.own_path && !strata_frontend::kCoderIq1M.own_path);
+    assert(identify_model("qwen35moe", "Qwen3.6-35B-A3B", 256, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf") == nullptr);
+    assert(identify_model("qwen35moe", "Qwen3.6-35B-A3B", 128, q36) == nullptr);
+    assert(identify_model("qwen4exp", "Qwen3.6-35B-A3B", 256, q36) == nullptr);
     // engine settings by environment: the Coder's adaptive overlap, nothing for the full model
     assert(std::string(strata_frontend::kCoderIq1M.engine_env[0]) == "STRATA_ADAPT_OVERLAP=1" &&
            strata_frontend::kCoderIq1M.engine_env[1] == nullptr);
