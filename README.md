@@ -110,7 +110,8 @@ Run, with the same options as on Linux:
 - The engine runs in a Job Object: when the server ends, even by a crash or `Stop-Process -Force`, the engine
   ends with it and the GPU is freed.
 - With `--mmproj`, image files go to an `images` folder beside the program, whose path must not contain a space
-  (its 8.3 short form is used when it has one). Image input has not been tested on Windows yet.
+  (its 8.3 short form is used when it has one). Tested with Qwen3.6 on the RTX 5070 Ti (2026-11-10): a 256x256
+  picture described correctly, decoding unchanged.
 
 Restarts: the server exits with a failure status when its engine fails, as on Linux. `.\serve.ps1` (same
 arguments; engine options after a quoted `'--'`) starts it again after 10 s, and stops for good on a clean exit,
@@ -139,12 +140,12 @@ Flash-Next releases.
 | --- | --- | --- | --- |
 | The full model (125B parameters) at IQ3_XXS | [ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF), directory `IQ3_XXS`, revision `ed59f920` | 42.9 GB | the hosts under Status |
 | The Coder (256 of the 512 experts kept) at IQ1_M | [ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF), directory `IQ1_M`, revision `5348543e` | 23.4 GB | RTX 5070 Ti under Windows: chat, streaming and tool calls; images not yet |
-| Qwen3.6-35B-A3B (35B, 3B active, 256 experts) at Unsloth's UD-Q6_K_XL, with its MTP block | [unsloth/Qwen3.6-35B-A3B-MTP-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF), file `Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf`, revision `5bc3e238` | the GPU holds what it can, the rest is copied to RAM (upstream plans 44 GB of RAM) | RTX 5070 Ti under Windows |
+| Qwen3.6-35B-A3B (35B, 3B active, 256 experts) at Unsloth's UD-Q6_K_XL, with its MTP block | [unsloth/Qwen3.6-35B-A3B-MTP-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF), file `Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf`, revision `5bc3e238` | the GPU holds what it can, the rest is copied to RAM (upstream plans 44 GB of RAM) | RTX 5070 Ti under Windows: chat and images |
 
 Qwen3.6-35B-A3B runs on the engine's own path for that family (`src/qwen35`, chosen from the GGUF's architecture,
 `qwen35moe`): one file, no pack, n-gram table or separate draft head, so `--pack`, `--mtp`, `--expert-profile`,
 `--ple-io` and `--low-ram` are refused for it. It drafts 2 tokens per step with the file's MTP block (upstream's
-setting). Its picture reader is `mmproj-F16.gguf` from the same repository (`--mmproj`). SHA-256 (upstream's
+setting). Its picture reader is `mmproj-F16.gguf` from the same repository (`--mmproj`; `just serve-qwen36` loads it). SHA-256 (upstream's
 `setup.py`): `Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf` (32.61 GB) `35fce994cd36104a7dc1bd8a4bdf13778145664c00fdef6773aebc9246e5019c`,
 `mmproj-F16.gguf` (0.90 GB) `71f3cbc1f7cc0f30d09d41cfa924c0060827ebc33bf15ace7e86661e856f0160`.
 

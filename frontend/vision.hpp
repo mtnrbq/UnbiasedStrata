@@ -114,7 +114,7 @@ class Vision {
 public:
     ~Vision() { if (ctx_) mtmd_free(ctx_); }
     bool enabled() const { return ctx_ != nullptr; }
-    void init(const std::string& path, const llama_model* model, int threads, int max_tokens) {
+    void init(const std::string& path, const llama_model* model, int n_embd, int threads, int max_tokens) {
 #if defined(_WIN32)
         (void) image_dir();   // refuse at start, not on the first image, when the folder cannot be used
 #endif
@@ -123,7 +123,9 @@ public:
         auto key = gg ? gguf_find_key(gg.get(), "clip.vision.projection_dim") : -1;
         if (key < 0) throw std::runtime_error("vision encoder has no projection_dim");
         width_ = (int) gguf_get_val_u32(gg.get(), key);
-        if (width_ != 2560) throw std::runtime_error("vision projector does not match Flash-Next's 2560 embedding width");
+        if (width_ != n_embd)
+            throw std::runtime_error("vision projector width " + std::to_string(width_) + " does not match the model's " +
+                                     std::to_string(n_embd));
         max_tokens_ = max_tokens;
         auto cp = mtmd_context_params_default();
         cp.use_gpu = false; cp.print_timings = false; cp.warmup = false;

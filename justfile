@@ -33,6 +33,7 @@ serve *args:
 serve-iq3 *args:
     .\serve.ps1 --host 0.0.0.0 --model '{{iq3_model}}' --pack '{{iq3_pack}}' --mtp '{{mtp}}' --ctx {{ctx}} {{args}}
 
-# run the server for Qwen3.6-35B-A3B UD-Q6_K_XL the same way (its own engine path; images: add --mmproj '{{q36_mmproj}}')
+# run the server for Qwen3.6-35B-A3B UD-Q6_K_XL the same way (its own engine path), with picture input: the encoder
+# runs on the CPU, so it takes no VRAM from the experts
 serve-qwen36 *args:
-    .\serve.ps1 --host 0.0.0.0 --model '{{q36_model}}' --ctx {{ctx}} {{args}}
+    .\serve.ps1 --host 0.0.0.0 --model '{{q36_model}}' --mmproj '{{q36_mmproj}}' --ctx {{ctx}} {{args}}
