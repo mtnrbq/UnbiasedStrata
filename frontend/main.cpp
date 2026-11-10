@@ -712,6 +712,7 @@ int main(int argc, char** argv) {
     if (o.ctx < 1024) { std::fprintf(stderr, "unbiased-strata: --ctx must be at least 1024\n"); return 2; }
 
     // which model this is, from the GGUF's header (the tensors are not read)
+    int n_embd = 0;   // the picture encoder must match it (the tokenizer-only model below does not know it)
     {
         gguf_init_params gp{true, nullptr};
         auto gg = std::unique_ptr<gguf_context, decltype(&gguf_free)>(gguf_init_from_file(o.model.c_str(), gp), gguf_free);
@@ -722,6 +723,8 @@ int main(int argc, char** argv) {
         const std::string arch = str_key("general.architecture"), name = str_key("general.name");
         const int64_t ke = gg ? gguf_find_key(gg.get(), (arch + ".expert_count").c_str()) : -1;
         const int64_t experts = ke >= 0 ? (int64_t) gguf_get_val_u32(gg.get(), ke) : 0;
+        const int64_t kw = gg ? gguf_find_key(gg.get(), (arch + ".embedding_length").c_str()) : -1;
+        n_embd = kw >= 0 ? (int) gguf_get_val_u32(gg.get(), kw) : 0;
         srv.info = strata_frontend::identify_model(arch, name, experts, o.model);
         if (srv.info == nullptr) {
             std::fprintf(stderr, "unbiased-strata: %s (%s, %lld experts) is not a model this server supports: "
@@ -826,7 +829,7 @@ int main(int argc, char** argv) {
     srv.tmpls = common_chat_templates_init(srv.model, "");
     srv.init_literals();
     if (!o.mmproj.empty()) {
-        try { srv.vision.init(o.mmproj, srv.model, o.threads, o.vision_tokens); }
+        try { srv.vision.init(o.mmproj, srv.model, n_embd, o.threads, o.vision_tokens); }
         catch (const std::exception& ex) {
             std::fprintf(stderr, "unbiased-strata: %s\n", ex.what()); srv.engine.quit(); return 1;
         }
