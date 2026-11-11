@@ -20,6 +20,8 @@ iq3_pack := iq3_data + '\packs\iq3-xxs'
 # Qwen3.6-35B-A3B UD-Q6_K_XL (Unsloth, with the MTP block): one GGUF, no pack or draft head; the picture reader beside it
 q36_model := iq3_data + '\models\qwen36\Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf'
 q36_mmproj := iq3_data + '\models\qwen36\mmproj-F16.gguf'
+# 96K: its context takes ~57 KB of VRAM per token; 112K starts with ~200 MB to spare, 128K does not start (16 GB card)
+q36_ctx := '98304'
 
 # build the server for the RTX 50 series only (sm_120): a third of the CUDA work of the default three architectures
 build *args:
@@ -36,4 +38,4 @@ serve-iq3 *args:
 # run the server for Qwen3.6-35B-A3B UD-Q6_K_XL the same way (its own engine path), with picture input: the encoder
 # runs on the CPU, so it takes no VRAM from the experts
 serve-qwen36 *args:
-    .\serve.ps1 --host 0.0.0.0 --model '{{q36_model}}' --mmproj '{{q36_mmproj}}' --ctx {{ctx}} {{args}}
+    .\serve.ps1 --host 0.0.0.0 --model '{{q36_model}}' --mmproj '{{q36_mmproj}}' --ctx {{q36_ctx}} {{args}}
